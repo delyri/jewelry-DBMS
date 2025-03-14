@@ -9,8 +9,9 @@
 #include "imstb_truetype.h"
 #include <iostream>
 #include <string>
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
+#include "libraries/include/glad/glad.h"
+#include "libraries/include/GLFW/glfw3.h"
+#include "libraries/include/KHR/khrplatform.h"
 #include <sqlite3.h>
 #include "json.hpp"
 #include <vector>
@@ -607,13 +608,13 @@ public:
             }
             ImGui::TableHeadersRow();
 
-            for (size_t row = 0; row < data.size(); ++row) {
+            for (int row = 0; row < data.size(); ++row) {
                 ImGui::TableNextRow();
 
                 // Флаг для отслеживания клика по строке
                 bool rowClicked = false;
 
-                for (size_t col = 0; col < data[row].size(); ++col) {
+                for (int col = 0; col < data[row].size(); ++col) {
                     ImGui::TableSetColumnIndex(col);
 
                     // Создаем уникальный идентификатор для каждой ячейки
