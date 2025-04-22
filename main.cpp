@@ -664,10 +664,10 @@ public:
 
 class ProdazhiTable : public dbTable {
 public:
-    ProdazhiTable() : dbTable({ "Дата", "ФИО", "Изделие" }) {}
+    ProdazhiTable() : dbTable({ "ФИО", "Дата", "Изделие" }) {}
 
     void addProdazhi(int code, const string& date, const string& fio, const string& izdeliyaName) {
-        addRowInternal({ date, fio, izdeliyaName });
+        addRowInternal({ fio, date, izdeliyaName });
         appendRowCode(data.size() - 1, code); // Используем метод из RowCode
     }
 };
@@ -729,6 +729,10 @@ private:
 
 int main()
 {   
+    Spisok spis1;
+    Datajson djson1(spis1, "old.json", "new.json");
+    djson1.read();
+
     setlocale(LC_ALL, "ru_RU.UTF-8");
     glfwInit();
     // Указываем версию OpenGL 3.3 (Core Profile)
@@ -755,7 +759,7 @@ int main()
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\bahnschrift.ttf", 20, NULL, io.Fonts->GetGlyphRangesCyrillic());
+    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\arial.ttf", 20, NULL, io.Fonts->GetGlyphRangesCyrillic());
     ImGui::StyleColorsLight();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
@@ -765,16 +769,20 @@ int main()
 
     Tab tab1("Tab 1");
     MaterialTable materialTable;
-    materialTable.addMaterial(1, "Золото", 5000);
-    materialTable.addMaterial(2, "Серебро", 300);
+    for (Material item : spis1.getMaterialList()) {
+        materialTable.addMaterial(item.getCode(), item.getName(), item.getCostPerGramm());
+    }
+    
 
     IzdeliyaTable izdeliyaTable;
-    izdeliyaTable.addIzdeliya(101, "Кольцо", "Украшение", 10, 10000, "Золото");
-    izdeliyaTable.addIzdeliya(102, "Цепочка", "Украшение", 5, 5000, "Серебро");
+    for (Izdeliya item : spis1.getIzdeliyaList()) {
+        izdeliyaTable.addIzdeliya(item.getCode(), item.getName(), item.getType(), item.getWeight(), item.getCost(), item.getMaterial().getName());
+    }
 
     ProdazhiTable prodazhiTable;
-    prodazhiTable.addProdazhi(1001, "2023-10-01", "Иванов Иван Иванович", "Кольцо");
-    prodazhiTable.addProdazhi(1002, "2023-10-02", "Петров Петр Петрович", "Цепочка");
+    for (Prodazhi item : spis1.getProdazhiList()) {
+        prodazhiTable.addProdazhi(item.getCode(), item.getDate(), item.getFIO(), item.getIzdeliya().getName());
+    }
 
 
     bool showAboutPopup = false;
