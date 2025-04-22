@@ -728,7 +728,8 @@ private:
 
 
 int main()
-{
+{   
+    setlocale(LC_ALL, "ru_RU.UTF-8");
     glfwInit();
     // Указываем версию OpenGL 3.3 (Core Profile)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
