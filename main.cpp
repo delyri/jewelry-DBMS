@@ -1,25 +1,34 @@
-#include "imconfig.h"
-#include "imgui.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
-#include "imgui_impl_opengl3_loader.h"
-#include "imgui_internal.h"
-#include "imstb_rectpack.h"
-#include "imstb_textedit.h"
-#include "imstb_truetype.h"
 #include <iostream>
 #include <string>
-#include "libraries/include/glad/glad.h"
-#include "libraries/include/GLFW/glfw3.h"
-#include "libraries/include/KHR/khrplatform.h"
-#include <sqlite3.h>
-#include "json.hpp"
 #include <vector>
 #include <algorithm>
 #include <type_traits>
 #include <filesystem>
 #include <fstream>
 #include <unordered_map>
+
+
+#include "libraries/include/glad/glad.h"
+#include "libraries/include/GLFW/glfw3.h"
+
+
+#include "imconfig.h"
+#include "imgui.h"
+
+
+#define IMGUI_IMPL_OPENGL_LOADER_GLAD
+#include "imgui_impl_opengl3.h"
+#include "imgui_impl_glfw.h"
+
+
+#include "imgui_internal.h"
+#include "imstb_rectpack.h"
+#include "imstb_textedit.h"
+#include "imstb_truetype.h"
+
+
+#include <sqlite3.h>
+#include "json.hpp"
 
 
 using namespace std;
@@ -108,47 +117,54 @@ template <typename T>
 class GeneralList {
 public:
     GeneralList() = default;
+    GeneralList(std::vector<T> p_list) : list(p_list) {}
+
+    // Очистка списка
     void clear() { list.clear(); }
-    T findByCode(int code) {
+
+    // Поиск объекта по коду
+    T findByCode(int code) const {
         for (const auto& item : list) {
-            if (item.getCode() == code) return item;
+            if (item.getCode() == code)
+                return item;
         }
-        return T();
+        return T(); // если не найдено, возвращаем объект по умолчанию
     }
 
-    vector<int> getCodes() {
-        vector<int> codes;
-        for (T item : list) {
+    // Получить все коды
+    std::vector<int> getCodes() const {
+        std::vector<int> codes;
+        for (const auto& item : list) {
             codes.push_back(item.getCode());
         }
         return codes;
     }
 
-    int getNewCode() {
-        vector<int> codes = this->getCodes();
-        if (!codes.empty()) return *max_element(codes.begin(), codes.end());
-        else return 1;
+    // Генерация нового уникального кода
+    int getNewCode() const {
+        auto codes = getCodes();
+        if (!codes.empty())
+            return *std::max_element(codes.begin(), codes.end()) + 1;
+        return 1;
     }
 
-    vector<T> getItems() { return list; };
+    // Получить весь список объектов
+    std::vector<T> getItems() const { return list; }
 
+    // Добавление объекта
     void appendItem(const T& item) {
         list.push_back(item);
-    };
-    void removeItem(const T& item) {
-        if constexpr (is_same<T, int>::value) {
-            auto it = remove(list.begin(), list.end(), this->findByCode(item));
-            list.erase(it, list.end());
-        }
-        else if constexpr (is_same<T, General>::value) {
-            auto it = remove(list.begin(), list.end(), item);
-            list.erase(it, list.end());
-        }
+    }
 
-    };
-    GeneralList(vector<T> p_list) : list(p_list) {}
+    // Удаление объекта
+    void removeItem(const T& item) {
+        list.erase(std::remove_if(list.begin(), list.end(),
+            [&item](const T& obj) { return obj.getCode() == item.getCode(); }),
+            list.end());
+    }
+
 private:
-    vector<T> list;
+    std::vector<T> list;
 };
 
 
@@ -235,7 +251,7 @@ public:
     void newMaterial(string name, int cost) { materialList.newItem(name, cost); }
     void removeMaterial(Material value) {
         materialList.removeItem(value);
-        for (Izdeliya item : izdeliyaList.getItems()) {
+        for (Izdeliya& item : izdeliyaList.getItems()) {
             if (item.getMaterial().getCode() == value.getCode()) {
                 item.setMaterial(Material());
             }
@@ -251,7 +267,7 @@ public:
     void newIzdeliya(string name, string type, int weight, int cost, Material material) { izdeliyaList.newItem(name, type, weight, cost, material); }
     void removeIzdeliya(Izdeliya value) {
         izdeliyaList.removeItem(value);
-        for (Prodazhi item : prodazhiList.getItems()) {
+        for (Prodazhi& item : prodazhiList.getItems()) {
             if (item.getIzdeliya().getCode() == value.getCode()) {
                 item.setIzdeliya(Izdeliya());
             }
@@ -588,7 +604,7 @@ class dbTable : public RowCode {
 protected:
     vector<string> headers;
     vector<vector<string>> data;
-
+    int selectedCode = -1;
     void addRowInternal(const vector<string>& rowData) {
         if (rowData.size() == headers.size()) {
             data.push_back(rowData);
@@ -598,10 +614,14 @@ protected:
 public:
     dbTable(const vector<string>& columnHeaders) : headers(columnHeaders) {}
 
-    
+    virtual void removeButton(int code) {}
 
     void display() {
-        if (ImGui::BeginTable("Table", headers.size(), ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+        // Фиксируем высоту видимой области таблицы (например, 200 пикселей)
+        ImGui::BeginChild("TableScrollRegion", ImVec2(0, 400), true, ImGuiWindowFlags_HorizontalScrollbar);
+
+        if (ImGui::BeginTable("Table", int(headers.size()), ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY)) {
+            ImGui::TableSetupScrollFreeze(0, 1);
             // Заголовки
             for (const auto& header : headers) {
                 ImGui::TableSetupColumn(header.c_str());
@@ -611,128 +631,323 @@ public:
             for (int row = 0; row < data.size(); ++row) {
                 ImGui::TableNextRow();
 
-                // Флаг для отслеживания клика по строке
                 bool rowClicked = false;
 
                 for (int col = 0; col < data[row].size(); ++col) {
                     ImGui::TableSetColumnIndex(col);
+                    std::string label = "##" + std::to_string(row) + "_" + std::to_string(col);
 
-                    // Создаем уникальный идентификатор для каждой ячейки
-                    string label = "##" + to_string(row) + "_" + to_string(col);
-
-                    // Используем Selectable для кликабельной ячейки
                     if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
-                        rowClicked = true; // Помечаем, что строка была кликнута
+                        rowClicked = true;
                     }
 
-                    // Отображаем текст ячейки
                     ImGui::SameLine();
                     ImGui::TextUnformatted(data[row][col].c_str());
                 }
 
-                // Если строка была кликнута, выполняем действие
                 if (rowClicked) {
-                    int code = getCode(row); // Получаем код по строке
-                    cout << "Вы кликнули на строку: " << row << ", код: " << code << endl;
-                    // Здесь можно добавить логику для обработки клика
+                    int code = getCode(row);
+                    selectedCode = code; // запоминаем выбранный код
+                    std::cout << "Вы кликнули на строку: " << row << ", код: " << code << std::endl;
                 }
             }
             ImGui::EndTable();
+            
         }
+
+        ImGui::EndChild(); // конец прокручиваемой области
     }
+
 };
 
 class MaterialTable : public dbTable {
+private:
+    Spisok& spisok;
 public:
-    MaterialTable() : dbTable({ "Название", "Цена за грамм" }) {}
+    MaterialTable(Spisok& s) : dbTable({ "Название", "Цена за грамм" }), spisok(s) {}
 
-    void addMaterial(int code, const string& name, int cost) {
-        addRowInternal({ name, to_string(cost) });
-        appendRowCode(data.size() - 1, code); // Связываем строку с кодом материала
+    void removeButton(int code) override {
+        spisok.removeMaterial(spisok.getMaterial(code));
+    }
+
+    void display() {
+        data.clear(); // очищаем старые строки
+        for (auto& item : spisok.getMaterialList()) {
+            addRowInternal({ item.getName(), to_string(item.getCostPerGramm()) });
+            appendRowCode(int(data.size() - 1), item.getCode());
+        }
+        dbTable::display(); // вызываем базовый рендер
     }
 };
 
 class IzdeliyaTable : public dbTable {
+private:
+    Spisok& spisok;
 public:
-    IzdeliyaTable() : dbTable({ "Название", "Тип", "Вес", "Цена", "Материал" }) {}
+    IzdeliyaTable(Spisok& s) : dbTable({ "Название", "Тип", "Вес", "Цена", "Материал" }), spisok(s) {}
 
-    void addIzdeliya(int code, const string& name, const string& type, int weight, int cost, const string& materialName) {
-        addRowInternal({ name, type, to_string(weight), to_string(cost), materialName });
-        appendRowCode(data.size() - 1, code); // Используем метод из RowCode
+    void removeButton(int code) override {
+        spisok.removeIzdeliya(spisok.getIzdeliya(code));
     }
+    void display() {
+        data.clear();  // очищаем старые строки
+        clear();       // очищаем RowCode
+
+        for (auto& item : spisok.getIzdeliyaList()) {
+            if (item.getMaterial().getCode() != 0) {
+                addRowInternal({ item.getName(),item.getType(),std::to_string(item.getWeight()),std::to_string(item.getCost()),item.getMaterial().getName() });
+            }
+            else {
+                addRowInternal({ item.getName(),item.getType(),std::to_string(item.getWeight()),std::to_string(item.getCost()),""});
+            }
+            appendRowCode(int(data.size() - 1), item.getCode());
+        }
+
+        dbTable::display();
+    }
+
 };
 
 class ProdazhiTable : public dbTable {
+private:
+    Spisok& spisok;
 public:
-    ProdazhiTable() : dbTable({ "ФИО", "Дата", "Изделие" }) {}
+    ProdazhiTable(Spisok& s) : dbTable({ "ФИО", "Дата", "Изделие" }),spisok(s) {}
 
-    void addProdazhi(int code, const string& date, const string& fio, const string& izdeliyaName) {
-        addRowInternal({ fio, date, izdeliyaName });
-        appendRowCode(data.size() - 1, code); // Используем метод из RowCode
+    void removeButton(int code) override {
+        spisok.removeProdazhi(spisok.getProdazhi(code));
+    }
+
+    void display() {
+        data.clear();
+        for (auto& item : spisok.getProdazhiList()) {
+            addRowInternal({ item.getFIO(),item.getDate(),item.getIzdeliya().getName()});
+            appendRowCode(int(data.size() - 1), item.getCode());
+        }
+        dbTable::display();
     }
 };
 
-class Tab
-{
+
+
+class MaterialTableEdit : public dbTable {
+private:
+    Spisok& spisok;
+    char name[64] = "";
+    int cost = 0;
+
 public:
-    Tab(const string& name) : tabName(name) {}
+    MaterialTableEdit(Spisok& s)
+        : dbTable({ "Название", "Цена за грамм" }), spisok(s) {
+    }
 
-    void Draw()
-    {
-        if (ImGui::BeginTable("ClickableTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-            // Заголовки столбцов
-            ImGui::TableSetupColumn("Column 1");
-            ImGui::TableSetupColumn("Column 2");
-            ImGui::TableSetupColumn("Column 3");
-            ImGui::TableHeadersRow();
+    void removeButton(int code) override {
+        spisok.removeMaterial(spisok.getMaterial(code));
+    }
 
-            // Содержимое таблицы
-            for (int row = 0; row < 5; row++) {
-                ImGui::TableNextRow(); // Переход на следующую строку
+    void display() {
+        
+        data.clear();
+        clear(); // очищаем RowCode, чтобы не было старых связей строк с кодами
 
-                // Флаг для отслеживания клика по строке
-                bool rowClicked = false;
+        for (auto& item : spisok.getMaterialList()) {
+            addRowInternal({ item.getName(), std::to_string(item.getCostPerGramm()) });
+            appendRowCode((int)data.size() - 1, item.getCode());
+        }
 
-                for (int col = 0; col < 3; col++) {
-                    ImGui::TableSetColumnIndex(col); // Переход на конкретный столбец
+        dbTable::display(); // вызываем базовый рендер таблицы (с выбором и кнопкой удаления)
 
-                    // Создаем кликабельную ячейку с помощью Selectable
-                    char label[32];
-                    snprintf(label, IM_ARRAYSIZE(label), "Row %d, Col %d", row, col);
+        //
+        // 2️⃣ Форма добавления нового материала
+        //
+        ImGui::Separator();
+        ImGui::Text("Добавить новый материал:");
 
-                    // Используем Selectable для кликабельной ячейки
-                    if (ImGui::Selectable(label, false, ImGuiSelectableFlags_SpanAllColumns)) {
-                        rowClicked = true; // Помечаем, что строка была кликнута
-                    }
-                }
+        ImGui::Columns(2, "FormColumns", false);
+        ImGui::SetColumnWidth(0, 200);
 
-                // Если строка была кликнута, выполняем действие
-                if (rowClicked) {
-                    ImGui::Text("You clicked row %d!", row);
-                }
+        ImGui::Text("Название:");
+        ImGui::NextColumn();
+        ImGui::InputText("##name_input", name, IM_ARRAYSIZE(name));
+        ImGui::NextColumn();
+
+        ImGui::Text("Цена за грамм:");
+        ImGui::NextColumn();
+        ImGui::InputInt("##cost_input", &cost, 1, 100);
+        ImGui::NextColumn();
+
+        ImGui::Columns(1);
+
+        if (ImGui::Button("Добавить материал")) {
+            if (strlen(name) > 0 && cost > 0) {
+                spisok.newMaterial(name, cost);
+                name[0] = '\0';
+                cost = 0;
             }
+        }
 
-            // Завершаем таблицу
-            ImGui::EndTable();
+        //
+        // 3️⃣ Работа с выбранным элементом (если выделен)
+        //
+        if (selectedCode != -1) {
+            ImGui::Separator();
+            ImGui::Text("Выбран материал с кодом: %d", selectedCode);
+            ImGui::SameLine();
+            if (ImGui::Button("Удалить выбранный материал")) {
+                removeButton(selectedCode);
+                selectedCode = -1;
+            }
         }
     }
-
-private:
-    string tabName; // Название вкладки
-    int counter = 0; // Счётчик
-    char textInput[128] = ""; // Поле ввода текста
-    int comboSelection = 0; // Выбор в комбо-боксе
-    const char* comboItems[3] = { "Option 1", "Option 2", "Option 3" }; // Элементы комбо-бокса
 };
 
+class IzdeliyaTableEdit {
+private:
+    Spisok& spisok;
 
+    char name[64] = "";
+    int weight = 0;
+    int price = 0;
+    int selectedType = 0;
+    int selectedMaterial = 0;
+
+    const char* types[6] = { "Цепь", "Кольцо", "Браслет", "Подвеска", "Серьги", "Ожерелье" };
+
+    // Храним строки материалов, чтобы c_str() было валидно
+    vector<std::string> materialNameStrings;
+
+public:
+    IzdeliyaTableEdit(Spisok& s) : spisok(s) {}
+
+    void display() {
+        // Обновляем список материалов
+        materialNameStrings.clear();
+        for (auto& m : spisok.getMaterialList())
+            materialNameStrings.push_back(m.getName());
+
+        vector<const char*> materialNames;
+        for (auto& nameStr : materialNameStrings)
+            materialNames.push_back(nameStr.c_str());
+
+        ImGui::Columns(2, "FormColumns", false);
+        ImGui::SetColumnWidth(0, 200);
+
+        ImGui::Text("Название:");
+        ImGui::NextColumn();
+        ImGui::InputText("##msg_input", name, IM_ARRAYSIZE(name));
+        ImGui::NextColumn();
+
+        ImGui::Text("Тип:");
+        ImGui::NextColumn();
+        ImGui::Combo("##type_combo", &selectedType, types, IM_ARRAYSIZE(types));
+        ImGui::NextColumn();
+
+        ImGui::Text("Вес:");
+        ImGui::NextColumn();
+        ImGui::InputInt("##weight_input", &weight, 1, 10);
+        ImGui::NextColumn();
+
+        ImGui::Text("Цена:");
+        ImGui::NextColumn();
+        ImGui::InputInt("##price_input", &price, 1, 100);
+        ImGui::NextColumn();
+
+        ImGui::Text("Материал:");
+        ImGui::NextColumn();
+        if (!materialNames.empty()) {
+            ImGui::Combo("##material_combo", &selectedMaterial, materialNames.data(), (int)materialNames.size());
+        }
+        else {
+            ImGui::TextDisabled("Нет материалов");
+        }
+        ImGui::NextColumn();
+
+        ImGui::Columns(1);
+
+        if (ImGui::Button("Добавить изделие") && !materialNames.empty()) {
+            Material mat = spisok.getMaterial(selectedMaterial);
+            spisok.newIzdeliya(name, types[selectedType], weight, price, mat);
+            name[0] = '\0';
+            weight = price = selectedType = selectedMaterial = 0;
+        }
+    }
+};
+
+class ProdazhiTableEdit {
+private:
+    Spisok& spisok;
+
+    char name[128] = "";
+    char surname[128] = "";
+    char lastname[128] = "";
+    char date[128] = "";
+    int selectedIzdeliya = 0;
+
+
+    vector<std::string> izdeliyaNameStrings;
+
+public:
+    ProdazhiTableEdit(Spisok& s) : spisok(s) {}
+
+    void display() {
+        // Обновляем список материалов
+        izdeliyaNameStrings.clear();
+        for (auto& i : spisok.getIzdeliyaList())
+            izdeliyaNameStrings.push_back(i.getName());
+
+        vector<const char*> izdeliyaNames;
+        for (auto& nameStr : izdeliyaNameStrings)
+            izdeliyaNames.push_back(nameStr.c_str());
+
+        ImGui::Columns(2, "FormColumns", false);
+        ImGui::SetColumnWidth(0, 200);
+
+        ImGui::Text("Фамилия:");
+        ImGui::NextColumn();
+        ImGui::InputText("##surname_input", surname, IM_ARRAYSIZE(surname));
+        ImGui::NextColumn();
+
+        ImGui::Text("Имя:");
+        ImGui::NextColumn();
+        ImGui::InputText("##name_input", name, IM_ARRAYSIZE(name));
+        ImGui::NextColumn();
+
+        ImGui::Text("Отчество:");
+        ImGui::NextColumn();
+        ImGui::InputText("##lastname_input", lastname, IM_ARRAYSIZE(lastname));
+        ImGui::NextColumn();
+
+        ImGui::Text("Дата:");
+        ImGui::NextColumn();
+        ImGui::InputText("##date_input", date, IM_ARRAYSIZE(date));
+        ImGui::NextColumn();
+
+        ImGui::Text("Изделие:");
+        ImGui::NextColumn();
+        if (!izdeliyaNames.empty()) {
+            ImGui::Combo("##izdeliya_combo", &selectedIzdeliya, izdeliyaNames.data(), (int)izdeliyaNames.size());
+        }
+        else {
+            ImGui::TextDisabled("Нет изделий");
+        }
+        ImGui::NextColumn();
+
+        ImGui::Columns(1);
+
+        if (ImGui::Button("Добавить продажу") && !izdeliyaNames.empty()) {
+            Izdeliya iz = spisok.getIzdeliya(selectedIzdeliya);
+            spisok.newProdazhi(date,name,surname,lastname,iz);
+            name[0] = date[0] = surname[0] =lastname[0] = '\0';
+        }
+    }
+};
 
 int main()
 {   
     Spisok spis1;
     Datajson djson1(spis1, "old.json", "new.json");
     djson1.read();
-
+    
     setlocale(LC_ALL, "ru_RU.UTF-8");
     glfwInit();
     // Указываем версию OpenGL 3.3 (Core Profile)
@@ -754,7 +969,7 @@ int main()
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); // Включить вертикальную синхронизацию
     gladLoadGL();
-
+    
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -767,23 +982,16 @@ int main()
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 
-    Tab tab1("Tab 1");
-    MaterialTable materialTable;
-    for (Material item : spis1.getMaterialList()) {
-        materialTable.addMaterial(item.getCode(), item.getName(), item.getCostPerGramm());
-    }
+    //MaterialTable materialTable(spis1);
+    MaterialTableEdit materialTableEdit(spis1);
+
+    IzdeliyaTable izdeliyaTable(spis1);
+    IzdeliyaTableEdit izdeliyaTableEdit(spis1);
     
 
-    IzdeliyaTable izdeliyaTable;
-    for (Izdeliya item : spis1.getIzdeliyaList()) {
-        izdeliyaTable.addIzdeliya(item.getCode(), item.getName(), item.getType(), item.getWeight(), item.getCost(), item.getMaterial().getName());
-    }
-
-    ProdazhiTable prodazhiTable;
-    for (Prodazhi item : spis1.getProdazhiList()) {
-        prodazhiTable.addProdazhi(item.getCode(), item.getDate(), item.getFIO(), item.getIzdeliya().getName());
-    }
-
+    ProdazhiTable prodazhiTable(spis1);
+    ProdazhiTableEdit prodazhiTableEdit(spis1);
+    
 
     bool showAboutPopup = false;
     // Основной цикл
@@ -794,12 +1002,38 @@ int main()
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-        ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGui::SetNextWindowSize(io.DisplaySize);
-        ImGui::Begin("Full Window", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
+        ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
+        ImGui::Begin("Full Window", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_MenuBar);
+        if (ImGui::BeginMainMenuBar())  // создаёт горизонтальное меню в верхней части окна
+        {
+            if (ImGui::BeginMenu("Файл"))
+            {
+                if (ImGui::MenuItem("Открыть", "Ctrl+O")) {
+                    // действие при выборе "Открыть"
+                }
+                if (ImGui::MenuItem("Сохранить", "Ctrl+S")) {
+                    // действие при выборе "Сохранить"
+                }
+                ImGui::Separator(); // горизонтальная линия
+                if (ImGui::MenuItem("Выход", "Alt+F4")) {
+                    // действие при выборе "Выход"
+                }
+                ImGui::EndMenu();
+            }
 
+            if (ImGui::BeginMenu("Справка"))
+            {
+                if (ImGui::MenuItem("О программе")) {
+                    // открыть popup или окно "О программе"
+                    showAboutPopup = true;
+                }
+                ImGui::EndMenu();
+            }
 
-  
+            ImGui::EndMainMenuBar();
+        }
+        
 
         // Окно "О программе"
         if (showAboutPopup) {
@@ -820,15 +1054,18 @@ int main()
         if (ImGui::BeginTabBar("MainTabBar"))
         {
             if (ImGui::BeginTabItem("Материалы")) {
-                materialTable.display();
+                //materialTable.display();
+                materialTableEdit.display();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Изделия")) {
                 izdeliyaTable.display();
+                izdeliyaTableEdit.display();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Продажи")) {
                 prodazhiTable.display();
+                prodazhiTableEdit.display();
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();
